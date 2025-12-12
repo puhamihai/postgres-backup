@@ -1,0 +1,11 @@
+#SPDX-License-Identifier: MIT-0
+---
+backup_directory: "/var/lib/backups"
+
+# backup_server:
+#   host:
+#   user: 
+#   password:
+#   backup_directory:
+
+# databases: []

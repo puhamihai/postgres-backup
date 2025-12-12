@@ -1,0 +1,83 @@
+#SPDX-License-Identifier: MIT-0
+---
+- name: Backup PostgreSQL databases
+  block:
+    - name: Set current date fact
+      ansible.builtin.set_fact:
+        current_date: "{{ now(fmt='%Y-%m-%d_%H-%M-%S') }}"
+
+    - name: Make sure backup directory exists
+      ansible.builtin.file:
+        path: "{{ backup_directory }}"
+        state: directory
+        mode: "0755"
+        owner: "postgres"
+
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - python3-pip
+          - python3-boto3
+          - python3-botocore
+          - postgresql-client
+          - sshpass
+        state: present
+
+    - name: Ensure psycopg3 is installed
+      ansible.builtin.pip:
+        name: psycopg>=3.1.8
+
+    - name: Collect PostgreSQL version and extensions
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_info:
+      register: dbs_info
+
+    - name: Set postgresql data
+      ansible.builtin.set_fact:
+        postgresql_data: { postgresql_data: "{{ dbs_info }}" }
+
+    - name: Write DB data to yaml file
+      ansible.builtin.copy:
+        dest: "{{ backup_directory }}/{{ inventory_hostname }}-{{ current_date }}-postgresql_data.yml"
+        content: "{{ postgresql_data | to_nice_yaml }}"
+        mode: "0644"
+
+    - name: Perform PostgreSQL pg_dump for each database
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        name: "{{ item.name }}"
+        state: dump
+        target: "{{ backup_directory }}/{{ inventory_hostname }}-{{ item.name }}-{{ current_date }}.sql"
+      with_items: "{{ databases }}"
+
+    - name: Copy dabase info file # noqa no-changed-when
+      when: backup_server is defined
+      ansible.builtin.command: |
+        {{ 'sshpass -p ' ~ backup_server.password if backup_server.password is defined else '' }} \
+        scp -o StrictHostKeyChecking=no \
+        {{ backup_directory }}/{{ inventory_hostname }}-{{ current_date }}-postgresql_data.yml \
+        {{ backup_server.user }}@{{ backup_server.host }}:{{ backup_server.backup_directory }}/
+
+    - name: Copy dabase backups to backup server # noqa no-changed-when
+      when: backup_server is defined
+      ansible.builtin.command: |
+        {{ 'sshpass -p ' ~ backup_server.password if backup_server.password is defined else '' }} \
+        scp -o StrictHostKeyChecking=no \
+        {{ backup_directory }}/{{ inventory_hostname }}-{{ item.name }}-{{ current_date }}.sql \
+        {{ backup_server.user }}@{{ backup_server.host }}:{{ backup_server.backup_directory }}/
+      with_items: "{{ databases }}"
+
+  always:
+    - name: Find all .sql files in backup folder on remote host
+      ansible.builtin.find:
+        paths: "{{ backup_directory }}"
+        file_type: file
+      register: backup_find
+
+    - name: Delete everything under backup folder
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      with_items: "{{ backup_find.files }}"
