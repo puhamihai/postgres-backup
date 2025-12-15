@@ -1,7 +1,11 @@
 # Postgres pg_dump backup
 
-Perform a pg_dump database backup, attach current_data to name and coppy to specified backup_server/s3 endpoint. S3 or backup_server needs to be defined
+Perform a pg_dump database backup, append current_data(now(fmt='%Y-%m-%d_%H-%M-%S')) to the backup name, and copy the resulting file the to specified backup_server or S3 endpoint.
 
+NOTE: For Debian fammily servers, make sure the acl package is installed!
+```bash
+sudo apt-get install acl
+```
 ## Requirements
 
 ## Variables
